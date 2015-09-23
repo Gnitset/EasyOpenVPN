@@ -1,0 +1,6 @@
+HOSTNAME.crt
+HOSTNAME.key
+client-generated.conf
+dh2048.pem
+server-generated.conf
+ta.key
