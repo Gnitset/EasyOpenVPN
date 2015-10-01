@@ -6,7 +6,8 @@ import os
 import sys
 import sqlite3
 
-db_file = '/etc/openvpn/access.sqlite3'
+#db_file = '/etc/openvpn/access.sqlite3'
+db_file = 'access.sqlite3'
 
 class Manage(object):
 	def __init__(self):
@@ -129,6 +130,7 @@ class Manage(object):
 		c.execute("UPDATE users SET password = ? WHERE username = ?", (hashed_password, user))
 		conn.commit()
 
+
 class IpTables(object):
 	@staticmethod
 	def _iptables(add_delete, ip, net):
@@ -201,6 +203,7 @@ class Helpers(object):
 		c = conn.cursor()
 		c.execute("PRAGMA foreign_keys = ON")
 		conn.commit()
+
 
 if __name__ == "__main__":
 	Helpers.connect_db(db_file)
