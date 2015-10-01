@@ -143,35 +143,41 @@ class IpTables(object):
 	def delete(cls, ip, net):
 		cls._iptables("D", ip, net)
 
-def user_pass_verify():
-	import bcrypt
-	user = os.environ['username']
-	password = os.environ['password']
-	password_hash = c.execute('SELECT password FROM users WHERE username = ?', (user,)).fetchall()[0][0]
-	if bcrypt.hashpw(password, password_hash) == password_hash:
+
+class Script(object):
+	def __init__(self, script_type):
+		getattr(self, "_%s"%script_type)()
+
+	def _user_pass_verify(self):
+		import bcrypt
+		user = os.environ['username']
+		password = os.environ['password']
+		password_hash = c.execute('SELECT password FROM users WHERE username = ?', (user,)).fetchall()[0][0]
+		if bcrypt.hashpw(password, password_hash) == password_hash:
+			sys.exit(0)
+		else:
+			sys.exit(1)
+
+	def _client_connect(self):
+		networks = c.execute('SELECT network FROM network_map WHERE username = ?', (os.environ['username'],)).fetchall()
+		if networks:
+			import socket, struct
+			c_conf=open(sys.argv[1], "a+")
+			for network in networks:
+				try:
+					net,cidr = network[0].split("/",1)
+					netmask = Helpers.netmask_from_cidr(cidr)
+					c_conf.write('push "route %s %s"\n'%(net,netmask))
+					IpTables.add(os.environ['ifconfig_pool_remote_ip'], network[0])
+				except ValueError:
+					continue
 		sys.exit(0)
-	else:
-		sys.exit(1)
 
-def client_connect():
-	networks = c.execute('SELECT network FROM network_map WHERE username = ?', (os.environ['username'],)).fetchall()
-	if networks:
-		import socket, struct
-		c_conf=open(sys.argv[1], "a+")
-		for network in networks:
-			try:
-				net,cidr = network[0].split("/",1)
-				netmask = Helpers.netmask_from_cidr(cidr)
-				c_conf.write('push "route %s %s"\n'%(net,netmask))
-				IpTables.add(os.environ['ifconfig_pool_remote_ip'], network[0])
-			except ValueError:
-				continue
-	sys.exit(0)
+	def _client_disconnect(self):
+		for network in c.execute('SELECT network FROM network_map WHERE username = ?', (os.environ['username'],)):
+			IpTables.delete(os.environ['ifconfig_pool_remote_ip'], network[0])
+		sys.exit(0)
 
-def client_disconnect():
-	for network in c.execute('SELECT network FROM network_map WHERE username = ?', (os.environ['username'],)):
-		IpTables.delete(os.environ['ifconfig_pool_remote_ip'], network[0])
-	sys.exit(0)
 
 class Helpers(object):
 	def __init__(self):
@@ -202,9 +208,7 @@ if __name__ == "__main__":
 	if not os.environ.has_key('script_type'):
 		Manage()
 		sys.exit(1)
-
-	lookup_method = { 'user-pass-verify': user_pass_verify, 'client-connect': client_connect, 'client-disconnect': client_disconnect }
-	
-	lookup_method[os.environ['script_type']]()
+	else:
+		Script(os.environ['script_type'])
 
 	sys.exit(1)
