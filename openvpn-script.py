@@ -178,6 +178,13 @@ class Helpers(object):
 		raise Exception("Only static methods here")
 
 	@staticmethod
+	def input(message, default_value):
+		if default_value:
+			return raw_input("%s [%s]: "%(message, default_value)) or default_value
+		else:
+			return raw_input("%s "%(message))
+
+	@staticmethod
 	def netmask_from_cidr(cidr):
 		return socket.inet_ntoa(struct.pack(">I", (0xffffffff << (32 - int(cidr))) & 0xffffffff))
 
