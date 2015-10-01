@@ -29,42 +29,42 @@ class Manage(object):
 			sys.exit(1)
 
 		if args.initdb:
-			if raw_input("Really initialize db and remove all in it? (y/N) ").lower() != 'y':
+			if Helpers.input("Really initialize db and remove all in it?", "y/N").lower() != 'y':
 				sys.exit(1)
 			else:
 				print "OK, wiping DB"
-				init_db()
+				self.init_db()
 				sys.exit(0)
 		elif args.chpass:
-			update_password(args.user)
+			self.update_password(args.user)
 			print "Password changed"
 			sys.exit(0)
 
 		if args.list and not args.map:
 			if args.user:
-				list_users()
+				self.list_users()
 			if args.network:
-				list_networks()
+				self.list_networks()
 		elif args.list and args.map:
 			pass # not implemented
 
 		if args.add:
 			if args.user and not args.network:
-				add_user(args.user)
-				update_password(args.user)
+				self.add_user(args.user)
+				self.update_password(args.user)
 			elif args.network and not args.user:
-				add_network(args.network)
+				self.add_network(args.network)
 			elif args.map and args.user and args.network:
-				add_map(args.user, args.network)
+				self.add_map(args.user, args.network)
 			else:
 				print "Add users and networks one at the time or add a map"
 		elif args.remove:
 			if args.user and not args.network:
-				remove_user(args.user, password)
+				self.remove_user(args.user, password)
 			elif args.network and not args.user:
-				remove_network(args.network)
+				self.remove_network(args.network)
 			elif args.map and args.user and args.network:
-				remove_map(args.user, args.network)
+				self.remove_map(args.user, args.network)
 			else:
 				print "Remove users or networks one at the time or remove a map"
 
@@ -200,7 +200,7 @@ if __name__ == "__main__":
 	Helpers.connect_db(db_file)
 
 	if not os.environ.has_key('script_type'):
-		manage()
+		Manage()
 		sys.exit(1)
 
 	lookup_method = { 'user-pass-verify': user_pass_verify, 'client-connect': client_connect, 'client-disconnect': client_disconnect }
