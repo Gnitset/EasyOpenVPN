@@ -13,17 +13,17 @@ class Manage(object):
 	def __init__(self):
 		import argparse
 		parser = argparse.ArgumentParser(description='Manage the user/access-db for openvpn')
-		parser.add_argument('-a', '--add', action='store_true')
-		parser.add_argument('-r', '--remove', action='store_true')
-		parser.add_argument('-l', '--list', action='store_true')
+		mode = parser.add_mutually_exclusive_group()
+		mode.add_argument('-a', '--add', action='store_true')
+		mode.add_argument('-r', '--remove', action='store_true')
+		mode.add_argument('-l', '--list', action='store_true')
+		mode.add_argument('-e', '--enable', action='store_true')
+		mode.add_argument('-d', '--disable', action='store_true')
 		parser.add_argument('-m', '--map', action='store_true')
 		parser.add_argument('--chpass', action='store_true')
 		parser.add_argument('--initdb', action='store_true')
-		parser.add_argument('-u', '--user')
-		parser.add_argument('-n', '--network')
-		enable_disable_group = parser.add_mutually_exclusive_group()
-		enable_disable_group.add_argument('-e', '--enable', action='store_true')
-		enable_disable_group.add_argument('-d', '--disable', action='store_true')
+		parser.add_argument('-u', '--user', nargs='?', const=None)
+		parser.add_argument('-n', '--network', nargs='?', const=None)
 		args = parser.parse_args()
 
 		if len(sys.argv) < 2:
@@ -43,9 +43,9 @@ class Manage(object):
 			sys.exit(0)
 
 		if args.list and not args.map:
-			if args.user:
+			if args.user == None:
 				self.list_users()
-			if args.network:
+			if args.network == None:
 				self.list_networks()
 		elif args.list and args.map:
 			self.list_maps()
