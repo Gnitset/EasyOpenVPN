@@ -47,7 +47,7 @@ class Manage(object):
 			if args.network:
 				self.list_networks()
 		elif args.list and args.map:
-			pass # not implemented
+			self.list_maps()
 
 		if args.add:
 			if args.user and not args.network:
@@ -107,7 +107,7 @@ class Manage(object):
 		conn.commit()
 
 	def list_maps(self):
-		for (username, network) in c.execute("SELECT username, network FROM network_map"):
+		for (username, network) in c.execute("SELECT username, network FROM network_map ORDER BY username, network"):
 			print "%s\t%s"%(username, network)
 
 	def init_db(self):
