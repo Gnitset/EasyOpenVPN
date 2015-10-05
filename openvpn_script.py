@@ -105,7 +105,7 @@ class Manage(object):
 		c.execute("DELETE FROM networks WHERE network = ?", (network,))
 		conn.commit()
 
-	def list_networks():
+	def list_networks(self):
 		for (network, description) in c.execute("SELECT network, description FROM networks"):
 			print "%s\t%s"%(network, description)
 
