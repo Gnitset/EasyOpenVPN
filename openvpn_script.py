@@ -14,8 +14,6 @@ class Manage(object):
 		import argparse
 		parser = argparse.ArgumentParser(description='Manage the user/access-db for openvpn')
 		parser.add_argument('-a', '--add', action='store_true')
-#		parser.add_argument('-e', '--enable', action='store_true')
-#		parser.add_argument('-d', '--disable', action='store_true')
 		parser.add_argument('-r', '--remove', action='store_true')
 		parser.add_argument('-l', '--list', action='store_true')
 		parser.add_argument('-m', '--map', action='store_true')
@@ -23,6 +21,9 @@ class Manage(object):
 		parser.add_argument('--initdb', action='store_true')
 		parser.add_argument('-u', '--user')
 		parser.add_argument('-n', '--network')
+		enable_disable_group = parser.add_mutually_exclusive_group()
+		enable_disable_group.add_argument('-e', '--enable', action='store_true')
+		enable_disable_group.add_argument('-d', '--disable', action='store_true')
 		args = parser.parse_args()
 
 		if len(sys.argv) < 2:
@@ -68,6 +69,16 @@ class Manage(object):
 				self.remove_map(args.user, args.network)
 			else:
 				print "Remove users or networks one at the time or remove a map"
+		elif args.enable:
+			if args.user:
+				self.enable_user(args.user)
+			else:
+				print "Please specify user to enable"
+		elif args.disable:
+			if args.user:
+				self.disable_user(args.user)
+			else:
+				print "Please specify user to disable"
 
 	def add_user(self, user):
 		c.execute("INSERT INTO users (username) VALUES (?)", (user,))
@@ -109,6 +120,14 @@ class Manage(object):
 	def list_maps(self):
 		for (username, network) in c.execute("SELECT username, network FROM network_map ORDER BY username, network"):
 			print "%s\t%s"%(username, network)
+
+	def enable_user(self, user):
+		c.execute("UPDATE users SET inactive = 0 WHERE username = ?", (user,))
+		conn.commit()
+
+	def disable_user(self, user):
+		c.execute("UPDATE users SET inactive = 1 WHERE username = ?", (user,))
+		conn.commit()
 
 	def init_db(self):
 		c.execute("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, two_factor_id TEXT DEFAULT NULL, inactive INTEGER DEFAULT 0)")
@@ -154,7 +173,7 @@ class Script(object):
 		import bcrypt
 		user = os.environ['username']
 		password = os.environ['password']
-		password_hash = c.execute('SELECT password FROM users WHERE username = ?', (user,)).fetchall()[0][0]
+		password_hash = c.execute('SELECT password FROM users WHERE username = ? AND inactive = 0', (user,)).fetchall()[0][0]
 		if bcrypt.hashpw(password, password_hash) == password_hash:
 			sys.exit(0)
 		else:
