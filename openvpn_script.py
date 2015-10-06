@@ -291,10 +291,9 @@ class Helpers(object):
 if __name__ == "__main__":
 	Helpers.connect_db(db_file)
 
-	if not os.environ.has_key('script_type'):
-		Manage()
-		sys.exit(1)
-	else:
+	if os.environ.has_key('script_type'):
 		Script(os.environ['script_type'])
+	else:
+		Manage()
 
 	sys.exit(1)
