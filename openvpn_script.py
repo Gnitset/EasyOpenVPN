@@ -9,6 +9,95 @@ import sqlite3
 #db_file = '/etc/openvpn/access.sqlite3'
 db_file = 'access.sqlite3'
 
+class User(object):
+	def __init__(self, username):
+		assert username != None
+		self.username = username
+
+	def exists(self):
+		if c.execute("SELECT count(*) FROM users WHERE username = ?", (self.username,)).fetchall()[0][0] == 1:
+			return True
+		else:
+			return False
+
+	def create(self):
+		c.execute("INSERT INTO users (username) VALUES (?)", (self.username,))
+		conn.commit()
+
+	def remove(self):
+		c.execute("DELETE FROM network_map WHERE username = ?", (self.username,))
+		c.execute("DELETE FROM users WHERE username = ?", (self.username,))
+		conn.commit()
+
+	def add_network(self, network):
+		c.execute("INSERT INTO network_map (username, network) VALUES (?, ?)", (self.username, network))
+		conn.commit()
+
+	def remove_network(self, network):
+		c.execute("DELETE FROM network_map WHERE username = ? AND network = ?", (self.username, network))
+		conn.commit()
+
+	def enable(self):
+		c.execute("UPDATE users SET inactive = 0 WHERE username = ?", (self.username,))
+		conn.commit()
+
+	def disable(self):
+		c.execute("UPDATE users SET inactive = 1 WHERE username = ?", (self.username,))
+		conn.commit()
+
+	def get_maps(self):
+		return c.execute("SELECT network FROM network_map WHERE username = ? ORDER BY network", (self.username,))
+
+	def set_password(self):
+		import bcrypt
+		import getpass
+		while True:
+			password1 = getpass.getpass("Password: ")
+			password2 = getpass.getpass("Password again: ")
+			if password1 == password2:
+				break
+			else:
+				print "Passwords didn't match, try again"
+		hashed_password = bcrypt.hashpw(password1, bcrypt.gensalt())
+		c.execute("UPDATE users SET password = ? WHERE username = ?", (hashed_password, self.username))
+		conn.commit()
+
+	def validate_password(self, password, only_if_active = True):
+		import bcrypt
+		if only_if_active:
+			password_hash = c.execute('SELECT password FROM users WHERE username = ? AND inactive = 0', (self.username,)).fetchall()[0][0]
+		else:
+			password_hash = c.execute('SELECT password FROM users WHERE username = ?', (self.username,)).fetchall()[0][0]
+		if bcrypt.hashpw(password, password_hash) == password_hash:
+			return True
+		else:
+			return False
+
+
+class Network(object):
+	def __init__(self, network):
+		assert network != None
+		self.network = network
+
+	def exists(self):
+		if c.execute("SELECT count(*) FROM networks WHERE network = ?", (self.network,)).fetchall()[0][0] == 1:
+			return True
+		else:
+			return False
+
+	def create(self):
+		c.execute("INSERT INTO networks (network) VALUES (?)", (self.network,))
+		conn.commit()
+
+	def remove(self):
+		c.execute("DELETE FROM network_map WHERE network = ?", (self.network,))
+		c.execute("DELETE FROM networks WHERE network = ?", (self.network,))
+		conn.commit()
+
+	def get_maps(self):
+		return c.execute("SELECT network FROM network_map WHERE network = ? ORDER BY username", (self.network,))
+
+
 class Manage(object):
 	def __init__(self):
 		import argparse
@@ -22,8 +111,8 @@ class Manage(object):
 		parser.add_argument('-m', '--map', action='store_true')
 		parser.add_argument('--chpass', action='store_true')
 		parser.add_argument('--initdb', action='store_true')
-		parser.add_argument('-u', '--user', nargs='?', const=None)
-		parser.add_argument('-n', '--network', nargs='?', const=None)
+		parser.add_argument('-u', '--user', nargs='?', const=False)
+		parser.add_argument('-n', '--network', nargs='?', const=False)
 		args = parser.parse_args()
 
 		if len(sys.argv) < 2:
@@ -37,116 +126,94 @@ class Manage(object):
 				print "OK, wiping DB"
 				self.init_db()
 				sys.exit(0)
-		elif args.chpass:
-			self.update_password(args.user)
-			print "Password changed"
-			sys.exit(0)
-
-		if args.list and not args.map:
-			if args.user == None:
-				self.list_users()
-			if args.network == None:
-				self.list_networks()
-		elif args.list and args.map:
-			self.list_maps()
-
-		if args.add:
-			if args.user and not args.network:
-				self.add_user(args.user)
-				self.update_password(args.user)
-			elif args.network and not args.user:
-				self.add_network(args.network)
-			elif args.map and args.user and args.network:
-				self.add_map(args.user, args.network)
+		elif args.user:
+			user = User(args.user)
+			if args.add and not args.map:
+				if user.exists():
+					print "User %s already exist" % user.username
+					sys.exit(1)
+				user.create()
+				user.set_password()
 			else:
-				print "Add users and networks one at the time or add a map"
-		elif args.remove:
-			if args.user and not args.network:
-				self.remove_user(args.user, password)
-			elif args.network and not args.user:
-				self.remove_network(args.network)
-			elif args.map and args.user and args.network:
-				self.remove_map(args.user, args.network)
+				if not user.exists():
+					print "User %s doesn't exist" % user.username
+					sys.exit(1)
+				elif args.chpass:
+					user.set_password()
+				elif args.enable:
+					user.enable()
+				elif args.disable:
+					user.disable()
+				elif args.map:
+					if args.list:
+						for (network,) in user.get_maps():
+							print network
+					elif args.network and args.add:
+						user.add_network(args.network)
+					elif args.network and args.remove:
+						user.remove_network(args.network)
+					else:
+						print "Don't know how to map"
+						sys.exit(1)
+				elif args.remove: # and not args.map:
+					user.remove()
+				else:
+					raise Exception("Should not happen (%s)", args)
+		elif args.network:
+			network = Network(args.network)
+			if args.add and not args.map:
+				if network.exists():
+					print "Network %s already exist" % network.network
+					sys.exit(1)
+				network.create()
 			else:
-				print "Remove users or networks one at the time or remove a map"
-		elif args.enable:
-			if args.user:
-				self.enable_user(args.user)
+				if not network.exists():
+					print "Network %s doesn't exist" % network.network
+					sys.exit(1)
+				elif args.map:
+					if args.list:
+						for (user,) in network.get_maps():
+							print user
+					else:
+						print "Missing user argument, don't know how to map"
+						sys.exit(1)
+				elif args.remove: # and not args.map:
+					network.remove()
+				else:
+					raise Exception("Should not happen (%s)", args)
+		elif args.list:
+			if args.user == False and args.network != False:
+				self.list_all_users()
+			elif args.user != False and args.network == False:
+				self.list_all_networks()
+			elif args.map:
+				self.list_all_maps()
 			else:
-				print "Please specify user to enable"
-		elif args.disable:
-			if args.user:
-				self.disable_user(args.user)
-			else:
-				print "Please specify user to disable"
+				print "List what?"
+				sys.exit(1)
+		else:
+			raise Exception("Should not happen (%s)", args)
+		sys.exit(0)
 
-	def add_user(self, user):
-		c.execute("INSERT INTO users (username) VALUES (?)", (user,))
-		conn.commit()
-
-	def remove_user(self, user,password):
-		c.execute("DELETE FROM network_map WHERE username = ?", (user,))
-		c.execute("DELETE FROM users WHERE username = ?", (user,))
-		conn.commit()
-
-	def list_users(self):
+	def list_all_users(self):
 		for (user, status) in c.execute("SELECT username, inactive FROM users"):
 			if status == 0:
-				print "%s\tACTIVE"%user
+				print "%s\tActive" % user
 			else:
-				print "%s\tInactive"%user
+				print "%s\tInactive" % user
 
-	def add_network(self, network):
-		c.execute("INSERT INTO networks (network) VALUES (?)", (network,))
-		conn.commit()
-
-	def remove_network(self, network):
-		c.execute("DELETE FROM network_map WHERE network = ?", (network,))
-		c.execute("DELETE FROM networks WHERE network = ?", (network,))
-		conn.commit()
-
-	def list_networks(self):
+	def list_all_networks(self):
 		for (network, description) in c.execute("SELECT network, description FROM networks"):
 			print "%s\t%s"%(network, description)
 
-	def add_map(self, user, network):
-		c.execute("INSERT INTO network_map (username, network) VALUES (?, ?)", (user, network))
-		conn.commit()
-
-	def remove_map(self, user, network):
-		c.execute("DELETE FROM network_map WHERE username = ? AND network = ?", (user, network))
-		conn.commit()
-
-	def list_maps(self):
+	def list_all_maps(self):
 		for (username, network) in c.execute("SELECT username, network FROM network_map ORDER BY username, network"):
 			print "%s\t%s"%(username, network)
-
-	def enable_user(self, user):
-		c.execute("UPDATE users SET inactive = 0 WHERE username = ?", (user,))
-		conn.commit()
-
-	def disable_user(self, user):
-		c.execute("UPDATE users SET inactive = 1 WHERE username = ?", (user,))
-		conn.commit()
 
 	def init_db(self):
 		c.execute("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, two_factor_id TEXT DEFAULT NULL, inactive INTEGER DEFAULT 0)")
 		c.execute("CREATE TABLE IF NOT EXISTS networks (network TEXT PRIMARY KEY CHECK ( LIKE('%/%', network) ), description TEXT)")
 		c.execute("CREATE TABLE IF NOT EXISTS network_map (username TEXT REFERENCES users(username), network TEXT REFERENCES networks(network), CONSTRAINT pk PRIMARY KEY (username, network))")
-		conn.commit()
-
-	def update_password(self, user):
-		import bcrypt
-		import getpass
-		while True:
-			password1 = getpass.getpass("Password: ")
-			password2 = getpass.getpass("Password again: ")
-			if password1 == password2:
-				break
-			else:
-				print "Passwords didn't match, try again"
-		hashed_password = bcrypt.hashpw(password1, bcrypt.gensalt())
-		c.execute("UPDATE users SET password = ? WHERE username = ?", (hashed_password, user))
 		conn.commit()
 
 
@@ -170,11 +237,8 @@ class Script(object):
 		getattr(self, "_%s"%script_type)()
 
 	def _user_pass_verify(self):
-		import bcrypt
-		user = os.environ['username']
-		password = os.environ['password']
-		password_hash = c.execute('SELECT password FROM users WHERE username = ? AND inactive = 0', (user,)).fetchall()[0][0]
-		if bcrypt.hashpw(password, password_hash) == password_hash:
+		user = User(os.environ['username'])
+		if user.validate_password(os.environ['password']):
 			sys.exit(0)
 		else:
 			sys.exit(1)
