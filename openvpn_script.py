@@ -23,6 +23,12 @@ class User(object):
 		else:
 			return False
 
+	def is_admin(self):
+		if c.execute("SELECT count(*) FROM users WHERE username = ? AND admin = 1", (self.username,)).fetchall()[0][0] == 1:
+			return True
+		else:
+			return False
+
 	def create(self):
 		c.execute("INSERT INTO users (username) VALUES (?)", (self.username,))
 		conn.commit()
@@ -67,17 +73,19 @@ class User(object):
 	def get_google_authenticator_secrets(self):
 		return zip(*c.execute("SELECT google_authenticator_secret FROM google_authenticator_secrets WHERE username = ? AND inactive = 0", (self.username,)).fetchall())[0]
 
-	def set_password(self):
+	def set_password(self, password=None):
 		import bcrypt
-		import getpass
-		while True:
-			password1 = getpass.getpass("Password: ")
-			password2 = getpass.getpass("Password again: ")
-			if password1 == password2:
-				break
-			else:
-				print "Passwords didn't match, try again"
-		hashed_password = bcrypt.hashpw(password1, bcrypt.gensalt())
+		if not password:
+			import getpass
+			while True:
+				password1 = getpass.getpass("Password: ")
+				password2 = getpass.getpass("Password again: ")
+				if password1 == password2:
+					break
+				else:
+					print "Passwords didn't match, try again"
+			password = password1
+		hashed_password = bcrypt.hashpw(password, bcrypt.gensalt())
 		c.execute("UPDATE users SET password = ? WHERE username = ?", (hashed_password, self.username))
 		conn.commit()
 
@@ -260,7 +268,7 @@ class Manage(object):
 		Helpers.print_table(table)
 
 	def init_db(self):
-		c.execute("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, two_factor_id TEXT DEFAULT NULL, inactive INTEGER DEFAULT 0)")
+		c.execute("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, two_factor_id TEXT DEFAULT NULL, inactive INTEGER DEFAULT 0, admin INTEGER DEFAULT 0)")
 		c.execute("CREATE TABLE IF NOT EXISTS networks (network TEXT PRIMARY KEY CHECK ( LIKE('%/%', network) ), description TEXT)")
 		c.execute("CREATE TABLE IF NOT EXISTS network_map (username TEXT REFERENCES users(username), network TEXT REFERENCES networks(network), CONSTRAINT pk PRIMARY KEY (username, network))")
 		c.execute("CREATE TABLE IF NOT EXISTS yubiserver_groups (yubiserver_group TEXT PRIMARY KEY)")
@@ -502,6 +510,14 @@ class Helpers(object):
 			return raw_input("%s [%s]: "%(message, default_value)) or default_value
 		else:
 			return raw_input("%s "%(message))
+
+	@staticmethod
+	def net_from_ip_and_mask(ip, mask):
+		import socket, struct
+		ip_int = struct.unpack(">I", socket.inet_aton(ip))[0]
+		netmask_int = struct.unpack(">I", socket.inet_aton(mask))[0]
+		net_int = ip_int & netmask_int
+		return socket.inet_ntoa(struct.pack(">I", net_int))
 
 	@staticmethod
 	def netmask_from_cidr(cidr):
