@@ -136,7 +136,7 @@ class Manage(object):
 				sys.exit(0)
 		elif args.user:
 			user = User(args.user)
-			if args.add and not args.map:
+			if args.add and not args.map and args.yubikey == None:
 				if user.exists():
 					print "User %s already exist" % user.username
 					sys.exit(1)
@@ -146,8 +146,8 @@ class Manage(object):
 				if not user.exists():
 					print "User %s doesn't exist" % user.username
 					sys.exit(1)
-				elif args.yubikey:
-					user.two_factor_id(args.yubikey)
+				elif args.yubikey or args.yubikey == '':
+					user.set_two_factor_id(args.yubikey)
 				elif args.chpass:
 					user.set_password()
 				elif args.enable:
