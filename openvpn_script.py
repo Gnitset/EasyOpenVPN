@@ -45,8 +45,15 @@ class User(object):
 		c.execute("UPDATE users SET inactive = 1 WHERE username = ?", (self.username,))
 		conn.commit()
 
+	def set_two_factor_id(self, two_factor_id):
+		c.execute("UPDATE users SET two_factor_id = ? WHERE username = ?", (two_factor_id, self.username,))
+		conn.commit()
+
 	def get_maps(self):
 		return c.execute("SELECT network FROM network_map WHERE username = ? ORDER BY network", (self.username,))
+
+	def get_two_factor_id(self):
+		return c.execute("SELECT two_factor_id FROM users WHERE username = ?", (self.username,)).fetchall()[0][0]
 
 	def set_password(self):
 		import bcrypt
@@ -113,6 +120,7 @@ class Manage(object):
 		parser.add_argument('--initdb', action='store_true')
 		parser.add_argument('-u', '--user', nargs='?', const=False)
 		parser.add_argument('-n', '--network', nargs='?', const=False)
+		parser.add_argument('-y', '--yubikey', nargs='?', const=False)
 		args = parser.parse_args()
 
 		if len(sys.argv) < 2:
@@ -138,6 +146,8 @@ class Manage(object):
 				if not user.exists():
 					print "User %s doesn't exist" % user.username
 					sys.exit(1)
+				elif args.yubikey:
+					user.two_factor_id(args.yubikey)
 				elif args.chpass:
 					user.set_password()
 				elif args.enable:
@@ -188,33 +198,105 @@ class Manage(object):
 				self.list_all_networks()
 			elif args.map:
 				self.list_all_maps()
+			elif args.yubikey == False:
+				self.list_all_yubikey_servers()
 			else:
 				print "List what?"
 				sys.exit(1)
+		elif args.yubikey:
+			if args.add:
+				YubikeyValidate.add_server(args.yubikey)
+			if args.remove:
+				YubikeyValidate.remove_server(args.yubikey)
+			if args.enable:
+				YubikeyValidate.enable_server(args.yubikey)
+			if args.disable:
+				YubikeyValidate.disable_server(args.yubikey)
 		else:
 			raise Exception("Should not happen (%s)", args)
 		sys.exit(0)
 
 	def list_all_users(self):
-		for (user, status) in c.execute("SELECT username, inactive FROM users"):
+		table = [("Username","Status","Yubikey identity")]
+		for (user, status, two_factor_id) in c.execute("SELECT username, inactive, two_factor_id FROM users ORDER BY inactive, username"):
 			if status == 0:
-				print "%s\tActive" % user
+				table.append((user,"Active",two_factor_id))
 			else:
-				print "%s\tInactive" % user
+				table.append((user,"Inactive",two_factor_id))
+		Helpers.print_table(table)
 
 	def list_all_networks(self):
+		table = [("Network", "Description")]
 		for (network, description) in c.execute("SELECT network, description FROM networks"):
-			print "%s\t%s"%(network, description)
+			table.append((network, description))
+		Helpers.print_table(table)
 
 	def list_all_maps(self):
+		table = [("Username", "Network")]
 		for (username, network) in c.execute("SELECT username, network FROM network_map ORDER BY username, network"):
-			print "%s\t%s"%(username, network)
+			table.append((username, network))
+		Helpers.print_table(table)
+
+	def list_all_yubikey_servers(self):
+		table = [("Yubiserver", "Status")]
+		for (yubiserver, status) in c.execute("SELECT yubiserver, inactive FROM yubiservers ORDER BY inactive, yubiserver"):
+			if status == 0:
+				table.append((yubiserver, "Active"))
+			else:
+				table.append((yubiserver, "Inactive"))
+		Helpers.print_table(table)
 
 	def init_db(self):
 		c.execute("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, two_factor_id TEXT DEFAULT NULL, inactive INTEGER DEFAULT 0)")
 		c.execute("CREATE TABLE IF NOT EXISTS networks (network TEXT PRIMARY KEY CHECK ( LIKE('%/%', network) ), description TEXT)")
 		c.execute("CREATE TABLE IF NOT EXISTS network_map (username TEXT REFERENCES users(username), network TEXT REFERENCES networks(network), CONSTRAINT pk PRIMARY KEY (username, network))")
+		c.execute("CREATE TABLE IF NOT EXISTS yubiservers (yubiserver TEXT PRIMARY KEY CHECK ( LIKE('http%://%/%', yubiserver) ), inactive INTEGER DEFAULT 0)")
 		conn.commit()
+
+
+class YubikeyValidate(object):
+	def __init__(self, otp):
+		self.response = {}
+		self.full_otp = otp
+		self._identity = otp[:-32]
+		self._otp = otp[-32:]
+
+	@staticmethod
+	def add_server(server):
+		c.execute("INSERT INTO yubiservers (yubiserver) VALUES (?)", (server,))
+		conn.commit()
+
+	@staticmethod
+	def remove_server(server):
+		c.execute("DELETE FROM yubiservers WHERE yubiserver = ?", (server,))
+		conn.commit()
+
+	@staticmethod
+	def enable_server(server):
+		c.execute("UPDATE yubiservers SET inactive = 0 WHERE yubiserver = ?", (server,))
+		conn.commit()
+
+	@staticmethod
+	def disable_server(server):
+		c.execute("UPDATE yubiservers SET inactive = 1 WHERE yubiserver = ?", (server,))
+		conn.commit()
+
+	def request(self):
+		import urllib
+		if self.response:
+			return
+		url = c.execute("SELECT yubiserver FROM yubiservers WHERE inactive = 0 ORDER BY RANDOM() LIMIT 1").fetchall()[0][0]
+		for row in urllib.urlopen("%s?otp=%s" % (url, self.full_otp)):
+			k,v = row.split("=",1)
+			self.response[k.strip()] = v.strip()
+		assert self.response["otp"] == self.full_otp
+
+	def validate_status(self, acceptable_statuses = ("OK",)):
+		self.request()
+		if self.response["status"] in acceptable_statuses:
+			return True
+		else:
+			return False
 
 
 class IpTables(object):
@@ -238,7 +320,18 @@ class Script(object):
 
 	def _user_pass_verify(self):
 		user = User(os.environ['username'])
-		if user.validate_password(os.environ['password']):
+		two_factor_id = user.get_two_factor_id()
+		if two_factor_id:
+			password = os.environ['password'][:(len(two_factor_id)+32)*-1]
+			two_factor_otp = os.environ['password'][(len(two_factor_id)+32)*-1:]
+			if not two_factor_otp.startswith(two_factor_id):
+				sys.exit(1)
+			yv = YubikeyValidate(two_factor_otp)
+			if not yv.validate_status():
+				sys.exit(1)
+		else:
+			password = os.environ['password']
+		if user.validate_password(password):
 			sys.exit(0)
 		else:
 			sys.exit(1)
@@ -278,6 +371,22 @@ class Helpers(object):
 	@staticmethod
 	def netmask_from_cidr(cidr):
 		return socket.inet_ntoa(struct.pack(">I", (0xffffffff << (32 - int(cidr))) & 0xffffffff))
+
+	@staticmethod
+	def print_table(table):
+		max_width = {}
+		for row in table:
+			for cell, data in enumerate(row):
+				data_len = len(data)
+				try:
+					if data_len > max_width[cell]:
+						max_width[cell] = data_len
+				except KeyError:
+					max_width[cell] = data_len
+		for row in table:
+			for cell, data in enumerate(row):
+				print "|",data.ljust(max_width[cell]),
+			print "|"
 
 	@staticmethod
 	def connect_db(db_file):
