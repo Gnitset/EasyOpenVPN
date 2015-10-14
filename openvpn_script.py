@@ -6,8 +6,11 @@ import os
 import sys
 import sqlite3
 
-#db_file = '/etc/openvpn/access.sqlite3'
-db_file = 'access.sqlite3'
+try:
+	from config import db_file
+except ImportError:
+	db_file = 'access.sqlite3'
+
 
 class User(object):
 	def __init__(self, username):

@@ -42,3 +42,5 @@ if __name__ == "__main__":
 	templates = read_templates(server="configs/server.conf", client="configs/client.conf")
 
 	write_generated_configs(templates, parameters)
+
+	open("config.py", "w").write("""db_file = "%s/access.sqlite3"\n""" % parameters['script_path'])

@@ -6,3 +6,4 @@ server-generated.conf
 ta.key
 access.sqlite3
 *.pyc
+config.py
