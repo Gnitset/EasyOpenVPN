@@ -316,7 +316,7 @@ class IpTables(object):
 
 class Script(object):
 	def __init__(self, script_type):
-		getattr(self, "_%s"%script_type)()
+		getattr(self, "_%s" % script_type.replace("-", "_"))()
 
 	def _user_pass_verify(self):
 		user = User(os.environ['username'])
