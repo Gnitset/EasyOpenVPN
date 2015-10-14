@@ -339,7 +339,6 @@ class Script(object):
 	def _client_connect(self):
 		networks = c.execute('SELECT network FROM network_map WHERE username = ?', (os.environ['username'],)).fetchall()
 		if networks:
-			import socket, struct
 			c_conf=open(sys.argv[1], "a+")
 			for network in networks:
 				try:
@@ -370,6 +369,7 @@ class Helpers(object):
 
 	@staticmethod
 	def netmask_from_cidr(cidr):
+		import socket, struct
 		return socket.inet_ntoa(struct.pack(">I", (0xffffffff << (32 - int(cidr))) & 0xffffffff))
 
 	@staticmethod
