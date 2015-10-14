@@ -377,6 +377,8 @@ class Helpers(object):
 		max_width = {}
 		for row in table:
 			for cell, data in enumerate(row):
+				if not data:
+					continue
 				data_len = len(data)
 				try:
 					if data_len > max_width[cell]:
@@ -385,6 +387,8 @@ class Helpers(object):
 					max_width[cell] = data_len
 		for row in table:
 			for cell, data in enumerate(row):
+				if data is None:
+					data = ''
 				print "|",data.ljust(max_width[cell]),
 			print "|"
 
