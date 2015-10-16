@@ -208,13 +208,13 @@ class Manage(object):
 				sys.exit(1)
 		elif args.yubikey:
 			if args.add:
-				YubikeyValidate.add_server(args.yubikey)
+				YubikeyOTP.add_server(args.yubikey)
 			if args.remove:
-				YubikeyValidate.remove_server(args.yubikey)
+				YubikeyOTP.remove_server(args.yubikey)
 			if args.enable:
-				YubikeyValidate.enable_server(args.yubikey)
+				YubikeyOTP.enable_server(args.yubikey)
 			if args.disable:
-				YubikeyValidate.disable_server(args.yubikey)
+				YubikeyOTP.disable_server(args.yubikey)
 		else:
 			raise Exception("Should not happen (%s)", args)
 		sys.exit(0)
@@ -257,12 +257,13 @@ class Manage(object):
 		conn.commit()
 
 
-class YubikeyValidate(object):
+class YubikeyOTP(object):
 	def __init__(self, otp):
 		self.response = {}
 		self.full_otp = otp
 		self._identity = otp[:-32]
 		self._otp = otp[-32:]
+		self.acceptable_statuses = ("OK",)
 
 	@staticmethod
 	def add_server(server):
@@ -284,7 +285,7 @@ class YubikeyValidate(object):
 		c.execute("UPDATE yubiservers SET inactive = 1 WHERE yubiserver = ?", (server,))
 		conn.commit()
 
-	def request(self):
+	def _request(self):
 		import urllib
 		if self.response:
 			return
@@ -294,9 +295,12 @@ class YubikeyValidate(object):
 			self.response[k.strip()] = v.strip()
 		assert self.response["otp"] == self.full_otp
 
-	def validate_status(self, acceptable_statuses = ("OK",)):
-		self.request()
-		if self.response["status"] in acceptable_statuses:
+	def set_accetable_status(self, acceptable_statuses):
+		self._acceptable_statuses = acceptable_statuses
+
+	def validate(self):
+		self._request()
+		if self.response["status"] in self._acceptable_statuses:
 			return True
 		else:
 			return False
@@ -329,7 +333,7 @@ class Script(object):
 			two_factor_otp = os.environ['password'][(len(two_factor_id)+32)*-1:]
 			if not two_factor_otp.startswith(two_factor_id):
 				sys.exit(1)
-			yv = YubikeyValidate(two_factor_otp)
+			yv = YubikeyOTP(two_factor_otp)
 			if not yv.validate_status():
 				sys.exit(1)
 		else:
