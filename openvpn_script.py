@@ -62,7 +62,10 @@ class User(object):
 			return False
 
 	def get_yubikey_identites(self):
-		return zip(*c.execute("SELECT yubikey_identity FORM yubikeys WHERE username = ? AND inactive = 0", (self.username,)).fetchall())[0]
+		return zip(*c.execute("SELECT yubikey_identity FROM yubikeys WHERE username = ? AND inactive = 0", (self.username,)).fetchall())[0]
+
+	def get_google_authenticator_secrets(self):
+		return zip(*c.execute("SELECT google_authenticator_secret FROM google_authenticator_secrets WHERE username = ? AND inactive = 0", (self.username,)).fetchall())[0]
 
 	def set_password(self):
 		import bcrypt
@@ -81,9 +84,9 @@ class User(object):
 	def validate_password(self, password, only_if_active = True):
 		import bcrypt
 		if only_if_active:
-			password_hash = c.execute('SELECT password FROM users WHERE username = ? AND inactive = 0', (self.username,)).fetchall()[0][0]
+			password_hash = c.execute('SELECT password FROM users WHERE username = ? AND inactive = 0', (self.username,)).fetchall()[0][0].encode('utf-8')
 		else:
-			password_hash = c.execute('SELECT password FROM users WHERE username = ?', (self.username,)).fetchall()[0][0]
+			password_hash = c.execute('SELECT password FROM users WHERE username = ?', (self.username,)).fetchall()[0][0].encode('utf-8')
 		if bcrypt.hashpw(password, password_hash) == password_hash:
 			return True
 		else:
@@ -130,6 +133,7 @@ class Manage(object):
 		parser.add_argument('-u', '--user', nargs='?', const=False)
 		parser.add_argument('-n', '--network', nargs='?', const=False)
 		parser.add_argument('-y', '--yubikey', nargs='?', const=False)
+		parser.add_argument('-g', '--ga-secret', nargs='?', const=False)
 		args = parser.parse_args()
 
 		if len(sys.argv) < 2:
@@ -145,7 +149,7 @@ class Manage(object):
 				sys.exit(0)
 		elif args.user:
 			user = User(args.user)
-			if args.add and not args.map and args.yubikey == None:
+			if args.add and not args.map and args.yubikey == None and args.ga_secret == None:
 				if user.exists():
 					print "User %s already exist" % user.username
 					sys.exit(1)
@@ -260,10 +264,51 @@ class Manage(object):
 		c.execute("CREATE TABLE IF NOT EXISTS networks (network TEXT PRIMARY KEY CHECK ( LIKE('%/%', network) ), description TEXT)")
 		c.execute("CREATE TABLE IF NOT EXISTS network_map (username TEXT REFERENCES users(username), network TEXT REFERENCES networks(network), CONSTRAINT pk PRIMARY KEY (username, network))")
 		c.execute("CREATE TABLE IF NOT EXISTS yubiserver_groups (yubiserver_group TEXT PRIMARY KEY)")
-		c.execute("INSERT INTO yubiserver_groups (yubiserver_group) VALUES ('default_group')")
+		c.execute("INSERT OR IGNORE INTO yubiserver_groups (yubiserver_group) VALUES ('default_group')")
 		c.execute("CREATE TABLE IF NOT EXISTS yubiservers (yubiserver TEXT CHECK ( LIKE('http%://%/%', yubiserver) ), yubiserver_group TEXT REFERENCES yubiserver_groups(yubiserver_group) DEFAULT 'default_group', inactive INTEGER DEFAULT 0, CONSTRAINT pk PRIMARY KEY (yubiserver, yubiserver_group))")
 		c.execute("CREATE TABLE IF NOT EXISTS yubikeys (yubikey_identity TEXT PRIMARY KEY, username TEXT REFERENCES users(username), yubiserver_group TEXT REFERENCES yubiserver_groups(yubiserver_group) DEFAULT 'default_group', inactive INTEGER DEFAULT 0)")
+		c.execute("CREATE TABLE IF NOT EXISTS google_authenticator_secrets (google_authenticator_secret TEXT, username TEXT REFERENCES users(username), inactive INTEGER DEFAULT 0, CONSTRAINT pk PRIMARY KEY (google_authenticator_secret, username))")
 		conn.commit()
+
+
+class GoogleAuthenticator(object):
+	def __init__(self, otp):
+		self.otp = otp
+
+	def set_secret_key(self, secret_key):
+		self._secret_key = secret_key
+		return True
+
+	def validate(self):
+		"""Stolen from http://www.brool.com/post/using-google-authenticator-for-your-website/"""
+		import time
+		import struct
+		import hmac
+		import hashlib
+		import base64
+
+		tm = int(time.time() / 30)
+		secret_key = base64.b32decode(self._secret_key)
+		# try 30 seconds behind and ahead as well
+		for ix in [0, -1, 1]:
+			# convert timestamp to raw bytes
+			b = struct.pack(">q", tm + ix)
+
+			# generate HMAC-SHA1 from timestamp based on secret key
+			hm = hmac.HMAC(secret_key, b, hashlib.sha1).digest()
+
+			# extract 4 bytes from digest based on LSB
+			offset = ord(hm[-1]) & 0x0F
+			truncatedHash = hm[offset:offset+4]
+
+			# get the code from it
+			code = struct.unpack(">L", truncatedHash)[0]
+			code &= 0x7FFFFFFF;
+			code %= 1000000;
+
+			if ("%06d" % code) == str(self.otp):
+				return True
+		return False
 
 
 class YubikeyOTP(object):
@@ -337,22 +382,36 @@ class Script(object):
 	def _user_pass_verify(self):
 		user = User(os.environ['username'])
 		input_password = os.environ['password']
-		if user.use_two_factor_auth()
-			if len(input_password) > 44:
-				password_yk_identity = input_password[:-32]
-				valid_yk_identities = set()
-				for yk_identity in user.get_yubikey_identites():
-					if user.validate_password(password_yk_identity[:-len(yk_identity)] and password_yk_identity.endswith(yk_identity):
-						valid_yk_identities.add(yk_identity)
-				assert len(valid_yk_identities) == 1
-				yk_otp = "%s%s" % (valid_yk_identities.pop(), input_password[-32:])
-				yv = YubikeyOTP(yk_otp)
-				if yv.validate():
+		if user.use_two_factor_auth():
+			try:
+				ga_otp_s = input_password[-6:]
+				assert len(ga_otp_s) == 6
+				ga_otp = int(ga_otp_s)
+				ga = GoogleAuthenticator(ga_otp)
+				valid_ga_secrets = set()
+				for secret in user.get_google_authenticator_secrets():
+					if user.validate_password(input_password[:-6]) and ga.set_secret_key(secret) and ga.validate():
+						valid_ga_secrets.add(secret)
+				if len(valid_ga_secrets) == 1:
 					sys.exit(0)
 				else:
 					sys.exit(1)
-			else:
-				sys.exit(1)
+			except ValueError, ve:
+				if len(input_password) > 40: # yubikey id 8-16 char + yubikey otp 32 char = at least 40 char, we assume yubikey authentication
+					password_yk_identity = input_password[:-32]
+					valid_yk_identities = set()
+					for yk_identity in user.get_yubikey_identites():
+						if user.validate_password(password_yk_identity[:-len(yk_identity)]) and password_yk_identity.endswith(yk_identity):
+							valid_yk_identities.add(yk_identity)
+					assert len(valid_yk_identities) == 1
+					yk_otp = "%s%s" % (valid_yk_identities.pop(), input_password[-32:])
+					yv = YubikeyOTP(yk_otp)
+					if yv.validate():
+						sys.exit(0)
+					else:
+						sys.exit(1)
+				else:
+					sys.exit(1)
 		else:
 			password = os.environ['password']
 			if user.validate_password(password):
