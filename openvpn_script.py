@@ -55,8 +55,14 @@ class User(object):
 	def get_maps(self):
 		return c.execute("SELECT network FROM network_map WHERE username = ? ORDER BY network", (self.username,))
 
-	def get_two_factor_id(self):
-		return c.execute("SELECT two_factor_id FROM users WHERE username = ?", (self.username,)).fetchall()[0][0]
+	def use_two_factor_auth(self):
+		if c.execute("SELECT two_factor_id FROM users WHERE username = ?", (self.username,)).fetchall()[0][0]:
+			return True
+		else:
+			return False
+
+	def get_yubikey_identites(self):
+		return zip(*c.execute("SELECT yubikey_identity FORM yubikeys WHERE username = ? AND inactive = 0", (self.username,)).fetchall())[0]
 
 	def set_password(self):
 		import bcrypt
@@ -253,7 +259,10 @@ class Manage(object):
 		c.execute("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, two_factor_id TEXT DEFAULT NULL, inactive INTEGER DEFAULT 0)")
 		c.execute("CREATE TABLE IF NOT EXISTS networks (network TEXT PRIMARY KEY CHECK ( LIKE('%/%', network) ), description TEXT)")
 		c.execute("CREATE TABLE IF NOT EXISTS network_map (username TEXT REFERENCES users(username), network TEXT REFERENCES networks(network), CONSTRAINT pk PRIMARY KEY (username, network))")
-		c.execute("CREATE TABLE IF NOT EXISTS yubiservers (yubiserver TEXT PRIMARY KEY CHECK ( LIKE('http%://%/%', yubiserver) ), inactive INTEGER DEFAULT 0)")
+		c.execute("CREATE TABLE IF NOT EXISTS yubiserver_groups (yubiserver_group TEXT PRIMARY KEY)")
+		c.execute("INSERT INTO yubiserver_groups (yubiserver_group) VALUES ('default_group')")
+		c.execute("CREATE TABLE IF NOT EXISTS yubiservers (yubiserver TEXT CHECK ( LIKE('http%://%/%', yubiserver) ), yubiserver_group TEXT REFERENCES yubiserver_groups(yubiserver_group) DEFAULT 'default_group', inactive INTEGER DEFAULT 0, CONSTRAINT pk PRIMARY KEY (yubiserver, yubiserver_group))")
+		c.execute("CREATE TABLE IF NOT EXISTS yubikeys (yubikey_identity TEXT PRIMARY KEY, username TEXT REFERENCES users(username), yubiserver_group TEXT REFERENCES yubiserver_groups(yubiserver_group) DEFAULT 'default_group', inactive INTEGER DEFAULT 0)")
 		conn.commit()
 
 
@@ -289,13 +298,13 @@ class YubikeyOTP(object):
 		import urllib
 		if self.response:
 			return
-		url = c.execute("SELECT yubiserver FROM yubiservers WHERE inactive = 0 ORDER BY RANDOM() LIMIT 1").fetchall()[0][0]
+		url = c.execute("SELECT yubiserver FROM yubikeys JOIN yubiservers USING (yubiserver_group) WHERE yubikey_identity = ? AND yubiservers.inactive = 0 ORDER BY RANDOM() LIMIT 1", self._identity).fetchall()[0][0]
 		for row in urllib.urlopen("%s?otp=%s" % (url, self.full_otp)):
 			k,v = row.split("=",1)
 			self.response[k.strip()] = v.strip()
 		assert self.response["otp"] == self.full_otp
 
-	def set_accetable_status(self, acceptable_statuses):
+	def set_acceptable_status(self, acceptable_statuses):
 		self._acceptable_statuses = acceptable_statuses
 
 	def validate(self):
@@ -327,21 +336,29 @@ class Script(object):
 
 	def _user_pass_verify(self):
 		user = User(os.environ['username'])
-		two_factor_id = user.get_two_factor_id()
-		if two_factor_id:
-			password = os.environ['password'][:(len(two_factor_id)+32)*-1]
-			two_factor_otp = os.environ['password'][(len(two_factor_id)+32)*-1:]
-			if not two_factor_otp.startswith(two_factor_id):
-				sys.exit(1)
-			yv = YubikeyOTP(two_factor_otp)
-			if not yv.validate_status():
+		input_password = os.environ['password']
+		if user.use_two_factor_auth()
+			if len(input_password) > 44:
+				password_yk_identity = input_password[:-32]
+				valid_yk_identities = set()
+				for yk_identity in user.get_yubikey_identites():
+					if user.validate_password(password_yk_identity[:-len(yk_identity)] and password_yk_identity.endswith(yk_identity):
+						valid_yk_identities.add(yk_identity)
+				assert len(valid_yk_identities) == 1
+				yk_otp = "%s%s" % (valid_yk_identities.pop(), input_password[-32:])
+				yv = YubikeyOTP(yk_otp)
+				if yv.validate():
+					sys.exit(0)
+				else:
+					sys.exit(1)
+			else:
 				sys.exit(1)
 		else:
 			password = os.environ['password']
-		if user.validate_password(password):
-			sys.exit(0)
-		else:
-			sys.exit(1)
+			if user.validate_password(password):
+				sys.exit(0)
+			else:
+				sys.exit(1)
 
 	def _client_connect(self):
 		networks = c.execute('SELECT network FROM network_map WHERE username = ?', (os.environ['username'],)).fetchall()
