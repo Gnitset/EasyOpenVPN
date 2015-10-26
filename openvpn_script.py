@@ -81,9 +81,9 @@ class User(object):
 	def validate_password(self, password, only_if_active = True):
 		import bcrypt
 		if only_if_active:
-			password_hash = c.execute('SELECT password FROM users WHERE username = ? AND inactive = 0', (self.username,)).fetchall()[0][0]
+			password_hash = c.execute('SELECT password FROM users WHERE username = ? AND inactive = 0', (self.username,)).fetchall()[0][0].encode('utf-8')
 		else:
-			password_hash = c.execute('SELECT password FROM users WHERE username = ?', (self.username,)).fetchall()[0][0]
+			password_hash = c.execute('SELECT password FROM users WHERE username = ?', (self.username,)).fetchall()[0][0].encode('utf-8')
 		if bcrypt.hashpw(password, password_hash) == password_hash:
 			return True
 		else:
