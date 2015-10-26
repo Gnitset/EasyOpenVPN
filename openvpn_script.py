@@ -362,17 +362,28 @@ class YubikeyOTP(object):
 
 class IpTables(object):
 	@staticmethod
-	def _iptables(add_delete, ip, net):
-		os.spawnv(os.P_WAIT, "/sbin/iptables", ["iptables", "-%s"%add_delete, "FORWARD", "-s", ip, "-d", net, "-j", "ACCEPT"])
-		os.spawnv(os.P_WAIT, "/sbin/iptables", ["iptables", "-%s"%add_delete, "FORWARD", "-s", net, "-d", ip, "-j", "ACCEPT"])
+	def _iptables(args):
+		os.spawnv(os.P_WAIT, "/sbin/iptables", ["iptables"] + args)
+
+	@classmethod
+	def add_namespace(cls, ip):
+		cls._iptables(["-N", ip])
+		cls._iptables(["-A", "FORWARD", "-j", ip])
+
+	@classmethod
+	def delete_namespace(cls, ip):
+		cls._iptables(["-D", "FORWARD", "-j", ip])
+		cls._iptables(["-X", ip])
 
 	@classmethod
 	def add(cls, ip, net):
-		cls._iptables("A", ip, net)
+		cls._iptables(["-A", ip, "-s", ip, "-d", net, "-j", "ACCEPT"])
+		cls._iptables(["-A", ip, "-s", net, "-d", ip, "-j", "ACCEPT"])
 
 	@classmethod
 	def delete(cls, ip, net):
-		cls._iptables("D", ip, net)
+		cls._iptables(["-D", ip, "-s", ip, "-d", net, "-j", "ACCEPT"])
+		cls._iptables(["-D", ip, "-s", net, "-d", ip, "-j", "ACCEPT"])
 
 
 class Script(object):
@@ -423,6 +434,7 @@ class Script(object):
 		networks = c.execute('SELECT network FROM network_map WHERE username = ?', (os.environ['username'],)).fetchall()
 		if networks:
 			c_conf=open(sys.argv[1], "a+")
+			IpTables.add_namespace(os.environ['ifconfig_pool_remote_ip'])
 			for network in networks:
 				try:
 					net,cidr = network[0].split("/",1)
@@ -434,8 +446,7 @@ class Script(object):
 		sys.exit(0)
 
 	def _client_disconnect(self):
-		for network in c.execute('SELECT network FROM network_map WHERE username = ?', (os.environ['username'],)):
-			IpTables.delete(os.environ['ifconfig_pool_remote_ip'], network[0])
+		IpTables.delete_namespace(os.environ['ifconfig_pool_remote_ip'])
 		sys.exit(0)
 
 
