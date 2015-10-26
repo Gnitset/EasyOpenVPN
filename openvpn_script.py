@@ -62,7 +62,7 @@ class User(object):
 			return False
 
 	def get_yubikey_identites(self):
-		return zip(*c.execute("SELECT yubikey_identity FORM yubikeys WHERE username = ? AND inactive = 0", (self.username,)).fetchall())[0]
+		return zip(*c.execute("SELECT yubikey_identity FROM yubikeys WHERE username = ? AND inactive = 0", (self.username,)).fetchall())[0]
 
 	def set_password(self):
 		import bcrypt
@@ -260,7 +260,7 @@ class Manage(object):
 		c.execute("CREATE TABLE IF NOT EXISTS networks (network TEXT PRIMARY KEY CHECK ( LIKE('%/%', network) ), description TEXT)")
 		c.execute("CREATE TABLE IF NOT EXISTS network_map (username TEXT REFERENCES users(username), network TEXT REFERENCES networks(network), CONSTRAINT pk PRIMARY KEY (username, network))")
 		c.execute("CREATE TABLE IF NOT EXISTS yubiserver_groups (yubiserver_group TEXT PRIMARY KEY)")
-		c.execute("INSERT INTO yubiserver_groups (yubiserver_group) VALUES ('default_group')")
+		c.execute("INSERT OR IGNORE INTO yubiserver_groups (yubiserver_group) VALUES ('default_group')")
 		c.execute("CREATE TABLE IF NOT EXISTS yubiservers (yubiserver TEXT CHECK ( LIKE('http%://%/%', yubiserver) ), yubiserver_group TEXT REFERENCES yubiserver_groups(yubiserver_group) DEFAULT 'default_group', inactive INTEGER DEFAULT 0, CONSTRAINT pk PRIMARY KEY (yubiserver, yubiserver_group))")
 		c.execute("CREATE TABLE IF NOT EXISTS yubikeys (yubikey_identity TEXT PRIMARY KEY, username TEXT REFERENCES users(username), yubiserver_group TEXT REFERENCES yubiserver_groups(yubiserver_group) DEFAULT 'default_group', inactive INTEGER DEFAULT 0)")
 		conn.commit()
