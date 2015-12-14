@@ -412,6 +412,7 @@ class IpTables(DummyFirewall):
 	@classmethod
 	def delete_namespace(cls, namespace):
 		cls._iptables(["-D", "FORWARD", "-j", namespace])
+		cls._iptables(["-F", namespace])
 		cls._iptables(["-X", namespace])
 
 
