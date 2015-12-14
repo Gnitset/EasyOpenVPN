@@ -360,30 +360,59 @@ class YubikeyOTP(object):
 			return False
 
 
-class IpTables(object):
+class DummyFirewall(object):
+	def __init__(self, namespace):
+		self._namespace = namespace
+		self._rules = list()
+
+	def add_rule(self, ip, net):
+		self._rules.append((ip, net))
+
+	def delete_rule(self, ip, net):
+		try:
+			self._rules.remove((ip, net))
+		except ValueError:
+			pass
+
+	def commit(self):
+		pass
+
+	@staticmethod
+	def delete_namespace(namespace):
+		pass
+
+
+class PacketFilter(DummyFirewall):
+	def commit(self):
+		import subprocess
+		pfctl = subprocess.Popen(["pfctl", "-a", self._namespace, "-f", "-"], executable="/sbin/pfctl", stdin=PIPE)
+		for ip, net in self._rules:
+			pfctl.stdin.write("pass from %s to %s\n" % (ip, net))
+			pfctl.stdin.write("pass from %s to %s\n" % (net, ip))
+		pfctl.stdin.close()
+		pfctl.wait()
+
+	@staticmethod
+	def delete_namespace(namespace):
+		os.spawnv(os.P_WAIT, "/sbin/pfctl", ["pfctl", "-a", namespace, "-F"])
+
+
+class IpTables(DummyFirewall):
+	def commit(self):
+		self._iptables(["-N", ip])
+		for ip, net in self._rules:
+			self._iptables(["-A", ip, "-s", ip, "-d", net, "-j", "ACCEPT"])
+			self._iptables(["-A", ip, "-s", net, "-d", ip, "-j", "ACCEPT"])
+		self._iptables(["-A", "FORWARD", "-j", ip])
+
 	@staticmethod
 	def _iptables(args):
 		os.spawnv(os.P_WAIT, "/sbin/iptables", ["iptables"] + args)
 
 	@classmethod
-	def add_namespace(cls, ip):
-		cls._iptables(["-N", ip])
-		cls._iptables(["-A", "FORWARD", "-j", ip])
-
-	@classmethod
-	def delete_namespace(cls, ip):
-		cls._iptables(["-D", "FORWARD", "-j", ip])
-		cls._iptables(["-X", ip])
-
-	@classmethod
-	def add(cls, ip, net):
-		cls._iptables(["-A", ip, "-s", ip, "-d", net, "-j", "ACCEPT"])
-		cls._iptables(["-A", ip, "-s", net, "-d", ip, "-j", "ACCEPT"])
-
-	@classmethod
-	def delete(cls, ip, net):
-		cls._iptables(["-D", ip, "-s", ip, "-d", net, "-j", "ACCEPT"])
-		cls._iptables(["-D", ip, "-s", net, "-d", ip, "-j", "ACCEPT"])
+	def delete_namespace(cls, namespace):
+		cls._iptables(["-D", "FORWARD", "-j", namespace])
+		cls._iptables(["-X", namespace])
 
 
 class Script(object):
@@ -433,20 +462,33 @@ class Script(object):
 	def _client_connect(self):
 		networks = c.execute('SELECT network FROM network_map WHERE username = ?', (os.environ['username'],)).fetchall()
 		if networks:
+			if os.geteuid() == 0 and os.path.isfile("/sbin/iptables"):
+				firewall = IpTables
+			elif os.geteuid() == 0 and os.path.isfile("/sbin/pfctl"):
+				firewall = PacketFilter
+			else:
+				firewall = DummyFirewall
+			fw = firewall(os.environ['ifconfig_pool_remote_ip'])
 			c_conf=open(sys.argv[1], "a+")
-			IpTables.add_namespace(os.environ['ifconfig_pool_remote_ip'])
 			for network in networks:
 				try:
 					net,cidr = network[0].split("/",1)
 					netmask = Helpers.netmask_from_cidr(cidr)
 					c_conf.write('push "route %s %s"\n'%(net,netmask))
-					IpTables.add(os.environ['ifconfig_pool_remote_ip'], network[0])
+					fw.add_rule(os.environ['ifconfig_pool_remote_ip'], network[0])
 				except ValueError:
 					continue
+			fw.commit()
 		sys.exit(0)
 
 	def _client_disconnect(self):
-		IpTables.delete_namespace(os.environ['ifconfig_pool_remote_ip'])
+		if os.geteuid() == 0 and os.path.isfile("/sbin/iptables"):
+			firewall = IpTables
+		elif os.geteuid() == 0 and os.path.isfile("/sbin/pfctl"):
+			firewall = PacketFilter
+		else:
+			firewall = DummyFirewall
+		firewall.delete_namespace(os.environ['ifconfig_pool_remote_ip'])
 		sys.exit(0)
 
 
