@@ -399,11 +399,11 @@ class PacketFilter(DummyFirewall):
 
 class IpTables(DummyFirewall):
 	def commit(self):
-		self._iptables(["-N", ip])
+		self._iptables(["-N", self._namespace])
 		for ip, net in self._rules:
 			self._iptables(["-A", ip, "-s", ip, "-d", net, "-j", "ACCEPT"])
 			self._iptables(["-A", ip, "-s", net, "-d", ip, "-j", "ACCEPT"])
-		self._iptables(["-A", "FORWARD", "-j", ip])
+		self._iptables(["-A", "FORWARD", "-j", self._namespace])
 
 	@staticmethod
 	def _iptables(args):
