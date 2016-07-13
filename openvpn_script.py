@@ -61,9 +61,6 @@ class User(object):
 		else:
 			return False
 
-	def get_yubikey_identites(self):
-		return zip(*c.execute("SELECT yubikey_identity FROM yubikeys WHERE username = ? AND inactive = 0", (self.username,)).fetchall())[0]
-
 	def get_google_authenticator_secrets(self):
 		return zip(*c.execute("SELECT google_authenticator_secret FROM google_authenticator_secrets WHERE username = ? AND inactive = 0", (self.username,)).fetchall())[0]
 
@@ -132,7 +129,6 @@ class Manage(object):
 		parser.add_argument('--initdb', action='store_true')
 		parser.add_argument('-u', '--user', nargs='?', const=False)
 		parser.add_argument('-n', '--network', nargs='?', const=False)
-		parser.add_argument('-y', '--yubikey', nargs='?', const=False)
 		parser.add_argument('-g', '--ga-secret', nargs='?', const=False)
 		args = parser.parse_args()
 
@@ -149,7 +145,7 @@ class Manage(object):
 				sys.exit(0)
 		elif args.user:
 			user = User(args.user)
-			if args.add and not args.map and args.yubikey == None and args.ga_secret == None:
+			if args.add and not args.map and args.ga_secret == None:
 				if user.exists():
 					print "User %s already exist" % user.username
 					sys.exit(1)
@@ -159,8 +155,6 @@ class Manage(object):
 				if not user.exists():
 					print "User %s doesn't exist" % user.username
 					sys.exit(1)
-				elif args.yubikey or args.yubikey == '':
-					user.set_two_factor_id(args.yubikey)
 				elif args.chpass:
 					user.set_password()
 				elif args.enable:
@@ -211,20 +205,9 @@ class Manage(object):
 				self.list_all_networks()
 			elif args.map:
 				self.list_all_maps()
-			elif args.yubikey == False:
-				self.list_all_yubikey_servers()
 			else:
 				print "List what?"
 				sys.exit(1)
-		elif args.yubikey:
-			if args.add:
-				YubikeyOTP.add_server(args.yubikey)
-			if args.remove:
-				YubikeyOTP.remove_server(args.yubikey)
-			if args.enable:
-				YubikeyOTP.enable_server(args.yubikey)
-			if args.disable:
-				YubikeyOTP.disable_server(args.yubikey)
 		else:
 			raise Exception("Should not happen (%s)", args)
 		sys.exit(0)
@@ -250,23 +233,10 @@ class Manage(object):
 			table.append((username, network))
 		Helpers.print_table(table)
 
-	def list_all_yubikey_servers(self):
-		table = [("Yubiserver", "Status")]
-		for (yubiserver, status) in c.execute("SELECT yubiserver, inactive FROM yubiservers ORDER BY inactive, yubiserver"):
-			if status == 0:
-				table.append((yubiserver, "Active"))
-			else:
-				table.append((yubiserver, "Inactive"))
-		Helpers.print_table(table)
-
 	def init_db(self):
 		c.execute("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, two_factor_id TEXT DEFAULT NULL, inactive INTEGER DEFAULT 0)")
 		c.execute("CREATE TABLE IF NOT EXISTS networks (network TEXT PRIMARY KEY CHECK ( LIKE('%/%', network) ), description TEXT)")
 		c.execute("CREATE TABLE IF NOT EXISTS network_map (username TEXT REFERENCES users(username), network TEXT REFERENCES networks(network), CONSTRAINT pk PRIMARY KEY (username, network))")
-		c.execute("CREATE TABLE IF NOT EXISTS yubiserver_groups (yubiserver_group TEXT PRIMARY KEY)")
-		c.execute("INSERT OR IGNORE INTO yubiserver_groups (yubiserver_group) VALUES ('default_group')")
-		c.execute("CREATE TABLE IF NOT EXISTS yubiservers (yubiserver TEXT CHECK ( LIKE('http%://%/%', yubiserver) ), yubiserver_group TEXT REFERENCES yubiserver_groups(yubiserver_group) DEFAULT 'default_group', inactive INTEGER DEFAULT 0, CONSTRAINT pk PRIMARY KEY (yubiserver, yubiserver_group))")
-		c.execute("CREATE TABLE IF NOT EXISTS yubikeys (yubikey_identity TEXT PRIMARY KEY, username TEXT REFERENCES users(username), yubiserver_group TEXT REFERENCES yubiserver_groups(yubiserver_group) DEFAULT 'default_group', inactive INTEGER DEFAULT 0)")
 		c.execute("CREATE TABLE IF NOT EXISTS google_authenticator_secrets (google_authenticator_secret TEXT, username TEXT REFERENCES users(username), inactive INTEGER DEFAULT 0, CONSTRAINT pk PRIMARY KEY (google_authenticator_secret, username))")
 		conn.commit()
 
@@ -309,55 +279,6 @@ class GoogleAuthenticator(object):
 			if ("%06d" % code) == str(self.otp):
 				return True
 		return False
-
-
-class YubikeyOTP(object):
-	def __init__(self, otp):
-		self.response = {}
-		self.full_otp = otp
-		self._identity = otp[:-32]
-		self._otp = otp[-32:]
-		self.acceptable_statuses = ("OK",)
-
-	@staticmethod
-	def add_server(server):
-		c.execute("INSERT INTO yubiservers (yubiserver) VALUES (?)", (server,))
-		conn.commit()
-
-	@staticmethod
-	def remove_server(server):
-		c.execute("DELETE FROM yubiservers WHERE yubiserver = ?", (server,))
-		conn.commit()
-
-	@staticmethod
-	def enable_server(server):
-		c.execute("UPDATE yubiservers SET inactive = 0 WHERE yubiserver = ?", (server,))
-		conn.commit()
-
-	@staticmethod
-	def disable_server(server):
-		c.execute("UPDATE yubiservers SET inactive = 1 WHERE yubiserver = ?", (server,))
-		conn.commit()
-
-	def _request(self):
-		import urllib
-		if self.response:
-			return
-		url = c.execute("SELECT yubiserver FROM yubikeys JOIN yubiservers USING (yubiserver_group) WHERE yubikey_identity = ? AND yubiservers.inactive = 0 ORDER BY RANDOM() LIMIT 1", self._identity).fetchall()[0][0]
-		for row in urllib.urlopen("%s?otp=%s" % (url, self.full_otp)):
-			k,v = row.split("=",1)
-			self.response[k.strip()] = v.strip()
-		assert self.response["otp"] == self.full_otp
-
-	def set_acceptable_status(self, acceptable_statuses):
-		self._acceptable_statuses = acceptable_statuses
-
-	def validate(self):
-		self._request()
-		if self.response["status"] in self._acceptable_statuses:
-			return True
-		else:
-			return False
 
 
 class DummyFirewall(object):
@@ -438,21 +359,7 @@ class Script(object):
 				else:
 					sys.exit(1)
 			except ValueError, ve:
-				if len(input_password) > 40: # yubikey id 8-16 char + yubikey otp 32 char = at least 40 char, we assume yubikey authentication
-					password_yk_identity = input_password[:-32]
-					valid_yk_identities = set()
-					for yk_identity in user.get_yubikey_identites():
-						if user.validate_password(password_yk_identity[:-len(yk_identity)]) and password_yk_identity.endswith(yk_identity):
-							valid_yk_identities.add(yk_identity)
-					assert len(valid_yk_identities) == 1
-					yk_otp = "%s%s" % (valid_yk_identities.pop(), input_password[-32:])
-					yv = YubikeyOTP(yk_otp)
-					if yv.validate():
-						sys.exit(0)
-					else:
-						sys.exit(1)
-				else:
-					sys.exit(1)
+				sys.exit(1)
 		else:
 			password = os.environ['password']
 			if user.validate_password(password):
