@@ -32,8 +32,8 @@ class SQLite3(object):
 			if bcrypt.hashpw(password[:-6], password_hash) != password_hash:
 				return False
 			totp_status = 0
-			for (_,totpsecret) in db_result:
-				totp.set_secret_key(totpsecret)
+			for (_,totp_secret) in db_result:
+				totp.set_secret_key(totp_secret)
 				if totp.validate(): totp_status+=1
 			return totp_status > 0
 		else:

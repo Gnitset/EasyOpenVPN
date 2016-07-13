@@ -37,8 +37,8 @@ class ActiveDirectory(object):
 				return False
 			ad_obj = self._ad_lookup(user)
 			totp_status = 0
-			for totpsecret in ad_obj["totpsecret"]:
-				totp.set_secret_key(totpsecret)
+			for totp_secret in ad_obj["totpsecret"]:
+				totp.set_secret_key(totp_secret)
 				if totp.validate(): totp_status+=1
 			return totp_status > 0
 		elif self._access_group in user_groups:
