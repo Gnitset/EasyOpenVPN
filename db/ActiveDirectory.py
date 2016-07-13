@@ -26,7 +26,10 @@ class ActiveDirectory(object):
 		if self._access_group_totp in user_groups:
 			totp_secret = password[-6:]
 			assert len(totp_secret) == 6
-			int(totp_secret)
+			try:
+				int(totp_secret)
+			ValueError:
+				return False
 			totp = TOTPValidate(totp_secret)
 			try:
 				self._ad_bind(user, password[:-6])
