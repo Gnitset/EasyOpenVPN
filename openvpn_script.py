@@ -86,7 +86,7 @@ class Script(object):
 				firewall = PacketFilter
 			else:
 				firewall = DummyFirewall
-			fw = firewall(os.environ['ifconfig_pool_remote_ip'])
+			fw = firewall(os.environ["ifconfig_pool_remote_ip"])
 			c_conf=open(sys.argv[1], "a+")
 			for (network, netmask) in networks:
 				try:
@@ -105,13 +105,13 @@ class Script(object):
 			firewall = PacketFilter
 		else:
 			firewall = DummyFirewall
-		firewall.delete_namespace(os.environ['ifconfig_pool_remote_ip'])
+		firewall.delete_namespace(os.environ["ifconfig_pool_remote_ip"])
 		sys.exit(0)
 
 
 if __name__ == "__main__":
-	if os.environ.has_key('script_type'):
-		Script(os.environ['script_type'])
+	if os.environ.has_key("script_type"):
+		Script(os.environ["script_type"])
 	else:
 		print "Not called from openvpn"
 
