@@ -26,7 +26,10 @@ class ActiveDirectory(object):
 		if self._access_group_totp in user_groups:
 			totp_secret = password[-6:]
 			assert len(totp_secret) == 6
-			int(totp_secret)
+			try:
+				int(totp_secret)
+			ValueError:
+				return False
 			totp = TOTPValidate(totp_secret)
 			try:
 				self._ad_bind(user, password[:-6])
@@ -34,8 +37,8 @@ class ActiveDirectory(object):
 				return False
 			ad_obj = self._ad_lookup(user)
 			totp_status = 0
-			for totpsecret in ad_obj["totpsecret"]:
-				totp.set_secret_key(totpsecret)
+			for totp_secret in ad_obj["totpsecret"]:
+				totp.set_secret_key(totp_secret)
 				if totp.validate(): totp_status+=1
 			return totp_status > 0
 		elif self._access_group in user_groups:

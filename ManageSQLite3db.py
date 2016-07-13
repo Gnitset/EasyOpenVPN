@@ -34,14 +34,6 @@ class User(object):
 		c.execute("DELETE FROM users WHERE username = ?", (self.username,))
 		conn.commit()
 
-	def add_network(self, network):
-		c.execute("INSERT INTO network_map (username, network) VALUES (?, ?)", (self.username, network))
-		conn.commit()
-
-	def remove_network(self, network):
-		c.execute("DELETE FROM network_map WHERE username = ? AND network = ?", (self.username, network))
-		conn.commit()
-
 	def enable(self):
 		c.execute("UPDATE users SET inactive = 0 WHERE username = ?", (self.username,))
 		conn.commit()
@@ -49,9 +41,6 @@ class User(object):
 	def disable(self):
 		c.execute("UPDATE users SET inactive = 1 WHERE username = ?", (self.username,))
 		conn.commit()
-
-	def get_maps(self):
-		return c.execute("SELECT network FROM network_map WHERE username = ? ORDER BY network", (self.username,))
 
 	def set_password(self):
 		import bcrypt
@@ -67,16 +56,27 @@ class User(object):
 		c.execute("UPDATE users SET password = ? WHERE username = ?", (hashed_password, self.username))
 		conn.commit()
 
-	def validate_password(self, password, only_if_active = True):
-		import bcrypt
-		if only_if_active:
-			password_hash = c.execute('SELECT password FROM users WHERE username = ? AND inactive = 0', (self.username,)).fetchall()[0][0].encode('utf-8')
-		else:
-			password_hash = c.execute('SELECT password FROM users WHERE username = ?', (self.username,)).fetchall()[0][0].encode('utf-8')
-		if bcrypt.hashpw(password, password_hash) == password_hash:
-			return True
-		else:
-			return False
+	def add_network(self, network):
+		c.execute("INSERT INTO network_map (username, network) VALUES (?, ?)", (self.username, network))
+		conn.commit()
+
+	def get_networks(self):
+		return c.execute("SELECT network FROM network_map WHERE username = ? ORDER BY network", (self.username,))
+
+	def remove_network(self, network):
+		c.execute("DELETE FROM network_map WHERE username = ? AND network = ?", (self.username, network))
+		conn.commit()
+
+	def add_totp_secret(self, secret):
+		c.execute("INSERT INTO totp_secrets (username, totp_secret) VALUES (?, ?)", (self.username, secret))
+		conn.commit()
+
+	def get_totp_secrets(self):
+		return c.execute("SELECT totp_secret FROM totp_secrets WHERE username = ?", (self.username,))
+
+	def remove_totp_secret(self, secret):
+		c.execute("DELETE FROM totp_secrets WHERE username = ? AND totp_secret = ?", (self.username, secret))
+		conn.commit()
 
 
 class Network(object):
@@ -99,14 +99,14 @@ class Network(object):
 		c.execute("DELETE FROM networks WHERE network = ?", (self.network,))
 		conn.commit()
 
-	def get_maps(self):
-		return c.execute("SELECT network FROM network_map WHERE network = ? ORDER BY username", (self.network,))
+	def get_users(self):
+		return c.execute("SELECT username FROM network_map WHERE network = ? ORDER BY username", (self.network,))
 
 
 class Manage(object):
 	def __init__(self):
 		import argparse
-		parser = argparse.ArgumentParser(description='Manage the user/access-db for openvpn')
+		parser = argparse.ArgumentParser(description='Manage the sqlite3 user/access-db for openvpn')
 		mode = parser.add_mutually_exclusive_group()
 		mode.add_argument('-a', '--add', action='store_true')
 		mode.add_argument('-r', '--remove', action='store_true')
@@ -118,7 +118,7 @@ class Manage(object):
 		parser.add_argument('--initdb', action='store_true')
 		parser.add_argument('-u', '--user', nargs='?', const=False)
 		parser.add_argument('-n', '--network', nargs='?', const=False)
-		parser.add_argument('-g', '--ga-secret', nargs='?', const=False)
+		parser.add_argument('-t', '--totp-secret', nargs='?', const=False)
 		args = parser.parse_args()
 
 		if len(sys.argv) < 2:
@@ -129,12 +129,12 @@ class Manage(object):
 			if Helpers.input("Really initialize db and remove all in it?", "y/N").lower() != 'y':
 				sys.exit(1)
 			else:
-				print "OK, wiping DB"
+				print "OK, initializing DB"
 				self.init_db()
 				sys.exit(0)
 		elif args.user:
 			user = User(args.user)
-			if args.add and not args.map and args.ga_secret == None:
+			if args.add and not args.map and args.totp_secret == None:
 				if user.exists():
 					print "User %s already exist" % user.username
 					sys.exit(1)
@@ -159,7 +159,18 @@ class Manage(object):
 					elif args.network and args.remove:
 						user.remove_network(args.network)
 					else:
-						print "Don't know how to map"
+						print "Don't know what to map"
+						sys.exit(1)
+				elif args.totp_secret:
+					if args.list:
+						for (secret,) in user.get_totp_secrets():
+							print secret
+					elif args.add:
+						user.add_totp_secret(args.totp_secret)
+					elif args.remove:
+						user.remove_totp_secret(args.totp_secret)
+					else:
+						print "Dont know what to do here"
 						sys.exit(1)
 				elif args.remove: # and not args.map:
 					user.remove()
@@ -203,11 +214,11 @@ class Manage(object):
 
 	def list_all_users(self):
 		table = [("Username","Status","2fa")]
-		for (user, status, two_factor_id) in c.execute("SELECT username, inactive, two_factor_id FROM users ORDER BY inactive, username"):
+		for (user, status, two_factor) in c.execute("SELECT username, inactive, two_factor FROM users ORDER BY inactive, username"):
 			if status == 0:
-				table.append((user,"Active",two_factor_id))
+				table.append((user,"Active",two_factor))
 			else:
-				table.append((user,"Inactive",two_factor_id))
+				table.append((user,"Inactive",two_factor))
 		Helpers.print_table(table)
 
 	def list_all_networks(self):
@@ -223,10 +234,10 @@ class Manage(object):
 		Helpers.print_table(table)
 
 	def init_db(self):
-		c.execute("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, two_factor_id TEXT DEFAULT NULL, inactive INTEGER DEFAULT 0)")
+		c.execute("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, two_factor INTEGER DEFAULT 0, inactive INTEGER DEFAULT 0)")
 		c.execute("CREATE TABLE IF NOT EXISTS networks (network TEXT PRIMARY KEY CHECK ( LIKE('%/%', network) ), description TEXT)")
 		c.execute("CREATE TABLE IF NOT EXISTS network_map (username TEXT REFERENCES users(username), network TEXT REFERENCES networks(network), CONSTRAINT pk PRIMARY KEY (username, network))")
-		c.execute("CREATE TABLE IF NOT EXISTS google_authenticator_secrets (google_authenticator_secret TEXT, username TEXT REFERENCES users(username), inactive INTEGER DEFAULT 0, CONSTRAINT pk PRIMARY KEY (google_authenticator_secret, username))")
+		c.execute("CREATE TABLE IF NOT EXISTS totp_secrets (totp_secret TEXT, username TEXT REFERENCES users(username), CONSTRAINT pk PRIMARY KEY (totp_secret, username))")
 		conn.commit()
 
 

@@ -15,30 +15,31 @@ class SQLite3(object):
 		self._conn.commit()
 
 	def validate_user_password(self, user, password):
-		password_hash = self._c.execute("SELECT password FROM users WHERE username = ? AND inactive = 0", (user,)).fetchall()[0][0].encode("utf-8")
-		try:
-			ga_otp_s = password[-6:]
-			assert len(ga_otp_s) == 6
-			ga_otp = int(ga_otp_s)
-			ga = TOTPValidate(ga_otp)
-		else:
-			ga = None
-		if bcrypt.hashpw(password, password_hash) == password_hash:
-			pw_status = True
-		else:
-			pw_status = False
-		if not ga:
-			return pw_status
-		if not pw_status:
-			ga.set_secret_key("FakeSecretKeyToPreventTimeingAttacks")
-			ga.validate()
+		db_result = self._c.execute("SELECT password, totp_secret FROM users
+			LEFT JOIN totp_secrets USING (username)
+			WHERE username = ? AND inactive = 0", (user,)).fetchall()
+		if len(db_result) == 0:
 			return False
-		ga_secret = self._c.execute("SELECT google_authenticator_secret FROM google_authenticator_secrets WHERE username = ?", (user,)).fetchall()[0][0]
-		ga.set_secret_key(ga_secret)
-		if ga.validate() and pw_status:
-			return True
+		password_hash = db_result[0][0].encode("utf-8")
+		elif db_result[0][1]:
+			totp_secret = password[-6:]
+			assert len(totp_secret) == 6
+			try:
+				int(totp_secret)
+			ValueError:
+				return False
+			totp = TOTPValidate(totp_secret)
+			if bcrypt.hashpw(password[:-6], password_hash) != password_hash:
+				return False
+			totp_status = 0
+			for (_,totp_secret) in db_result:
+				totp.set_secret_key(totp_secret)
+				if totp.validate(): totp_status+=1
+			return totp_status > 0
 		else:
-			return False
+			if bcrypt.hashpw(password[:-6], password_hash) == password_hash:
+				return True
+		return False
 
 	def get_user_networks(self, user):
 		ret = list()

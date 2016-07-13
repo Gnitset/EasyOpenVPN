@@ -17,9 +17,9 @@ def get_parameters():
 	parameters['client_network_netmask'] = Helpers.input("Netmask for client network", '255.255.255.0')
 	parameters['cipher'] = Helpers.input("Encryption cipher for the vpn", 'AES-256-CBC')
 
-	parameters['ca_certificate'] = open(Helpers.input("Filename for CA-certificate", "HOSTNAME.crt")).read().strip()
-	parameters['server_certificate'] =  open(Helpers.input("Filename for server certificate", "HOSTNAME.crt")).read().strip()
-	parameters['server_key'] = open(Helpers.input("Filename for server certificate key file", "HOSTNAME.key")).read().strip()
+	parameters['ca_certificate'] = open(Helpers.input("Filename for CA-certificate", "%s.crt" % parameters['vpn_server_host'])).read().strip()
+	parameters['server_certificate'] =  open(Helpers.input("Filename for server certificate", parameters['ca_certificate'])).read().strip()
+	parameters['server_key'] = open(Helpers.input("Filename for server certificate key file", "%s.key" % parameters['vpn_server_host'])).read().strip()
 	parameters['ta_key'] = open(Helpers.input("Filename for tls-auth key", "ta.key")).read().strip()
 	parameters['dhparam'] = open(Helpers.input("Filename for Diffie-Hellman key", "dh2048.pem")).read().strip()
 
