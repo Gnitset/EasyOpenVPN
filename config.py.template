@@ -1,3 +1,15 @@
 ## For sqlite db backend
 #from db.SQLite3 import db
 #db_config = { "db_file": "access.sqlite3" }
+#
+## For Active Directory db backend
+#from db.ActiveDirectory import db
+#db_config = {
+#	"server": "10.1.1.1"
+#	"domain": "example.com",
+#	"search_base": "DC=example,DC=com",
+#	"access_group": "CN=EasyOpenVPN,OU=Groups,DC=example,DC=com",
+#	"access_group_totp": "CN=EasyOpenVPN-totp,OU=Groups,DC=example,DC=com",
+#	"ad_user": "EasyOpenVPN",
+#	"ad_password": "Ch4ngeMe!"
+#}
