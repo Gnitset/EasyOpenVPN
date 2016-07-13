@@ -385,7 +385,7 @@ class DummyFirewall(object):
 class PacketFilter(DummyFirewall):
 	def commit(self):
 		import subprocess
-		pfctl = subprocess.Popen(["pfctl", "-a", self._namespace, "-f", "-"], executable="/sbin/pfctl", stdin=PIPE)
+		pfctl = subprocess.Popen(["pfctl", "-a", "easyopenvpn/%s" % self._namespace, "-f", "-"], executable="/sbin/pfctl", stdin=subprocess.PIPE)
 		for ip, net in self._rules:
 			pfctl.stdin.write("pass from %s to %s\n" % (ip, net))
 			pfctl.stdin.write("pass from %s to %s\n" % (net, ip))
@@ -394,7 +394,7 @@ class PacketFilter(DummyFirewall):
 
 	@staticmethod
 	def delete_namespace(namespace):
-		os.spawnv(os.P_WAIT, "/sbin/pfctl", ["pfctl", "-a", namespace, "-F"])
+		os.spawnv(os.P_WAIT, "/sbin/pfctl", ["pfctl", "-a", "easyopenvpn/%s" % namespace, "-F", "rules"])
 
 
 class IpTables(DummyFirewall):
