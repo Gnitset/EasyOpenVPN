@@ -4,7 +4,8 @@ import os
 
 from string import Template
 from socket import gethostname as socket_gethostname
-from openvpn_script import Helpers
+from lib.Helpers import Helpers
+
 
 def get_parameters():
 	parameters=dict()
