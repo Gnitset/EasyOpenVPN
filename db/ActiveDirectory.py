@@ -28,7 +28,7 @@ class ActiveDirectory(object):
 			assert len(totp_secret) == 6
 			try:
 				int(totp_secret)
-			ValueError:
+			except ValueError:
 				return False
 			totp = TOTPValidate(totp_secret)
 			try:

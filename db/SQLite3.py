@@ -26,7 +26,7 @@ class SQLite3(object):
 			assert len(totp_secret) == 6
 			try:
 				int(totp_secret)
-			ValueError:
+			except ValueError:
 				return False
 			totp = TOTPValidate(totp_secret)
 			if bcrypt.hashpw(password[:-6], password_hash) != password_hash:
