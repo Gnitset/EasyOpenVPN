@@ -2,6 +2,8 @@
 
 import os
 import sys
+from lib.Helpers import Helpers
+
 
 try:
 	from config import db, db_config
@@ -92,7 +94,7 @@ class Script(object):
 				try:
 					c_conf.write("push \"route %s %s\"\n" % (network, netmask))
 					fw.add_rule(os.environ["ifconfig_pool_remote_ip"], "%s/%s" %
-						(network, sum([bin(int(x)).count('1') for x in netmask.split('.')])))
+						(network, Helpers.cidr_from_netmask(netmask)))
 				except ValueError:
 					continue
 			fw.commit()
