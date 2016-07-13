@@ -3,7 +3,6 @@
 import os
 
 from string import Template
-from socket import gethostname as socket_gethostname
 
 
 class Helpers(object):
@@ -36,6 +35,15 @@ class Helpers(object):
 					data = ''
 				print "|",data.ljust(max_width[cell]),
 			print "|"
+
+	@staticmethod
+	def netmask_from_cidr(cidr):
+		import socket, struct
+		return socket.inet_ntoa(struct.pack(">I", (0xffffffff << (32 - int(cidr))) & 0xffffffff))
+
+	@staticmethod
+	def cidr_from_netmask(netmask):
+		return sum([bin(int(x)).count('1') for x in netmask.split('.')])
 
 	@staticmethod
 	def connect_db(db_file):

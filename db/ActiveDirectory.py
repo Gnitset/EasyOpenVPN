@@ -3,6 +3,8 @@
 # Depends on python-ldap
 
 import ldap
+from lib.Helpers import Helpers
+from lib.TOTPValidate import TOTPValidate
 
 
 class ActiveDirectory(object):
@@ -25,7 +27,7 @@ class ActiveDirectory(object):
 			totp_secret = password[-6:]
 			assert len(totp_secret) == 6
 			int(totp_secret)
-			ga = GoogleAuthenticator(totp_secret)
+			totp = TOTPValidate(totp_secret)
 			try:
 				self._ad_bind(user, password[:-6])
 			except ldap.INVALID_CREDENTIALS:
@@ -33,8 +35,8 @@ class ActiveDirectory(object):
 			ad_obj = self._ad_lookup(user)
 			totp_status = 0
 			for totpsecret in ad_obj["totpsecret"]:
-				ga.set_secret_key(totpsecret)
-				if ga.validate(): totp_status+=1
+				totp.set_secret_key(totpsecret)
+				if totp.validate(): totp_status+=1
 			return totp_status > 0
 		elif self._access_group in user_groups:
 			try:
@@ -65,56 +67,6 @@ class ActiveDirectory(object):
 	def _ad_lookup(self, user):
 		return self._ad.search_s(self._search_base, ldap.SCOPE_SUBTREE,
 			"(&(objectCategory=person)(objectClass=user)(sAMAccountName=%s))" % user)[0][1]
-
-
-class GoogleAuthenticator(object):
-	def __init__(self, otp):
-		self.otp = otp
-
-	def set_secret_key(self, secret_key):
-		self._secret_key = secret_key
-		return True
-
-	def validate(self):
-		"""Stolen from http://www.brool.com/post/using-google-authenticator-for-your-website/"""
-		import time
-		import struct
-		import hmac
-		import hashlib
-		import base64
-
-		tm = int(time.time() / 30)
-		secret_key = base64.b32decode(self._secret_key)
-		# try 30 seconds behind and ahead as well
-		for ix in [0, -1, 1]:
-			# convert timestamp to raw bytes
-			b = struct.pack(">q", tm + ix)
-
-			# generate HMAC-SHA1 from timestamp based on secret key
-			hm = hmac.HMAC(secret_key, b, hashlib.sha1).digest()
-
-			# extract 4 bytes from digest based on LSB
-			offset = ord(hm[-1]) & 0x0F
-			truncatedHash = hm[offset:offset+4]
-
-			# get the code from it
-			code = struct.unpack(">L", truncatedHash)[0]
-			code &= 0x7FFFFFFF;
-			code %= 1000000;
-
-			if ("%06d" % code) == str(self.otp):
-				return True
-		return False
-
-
-class Helpers(object):
-	def __init__(self):
-		raise Exception("Only static methods here")
-
-	@staticmethod
-	def netmask_from_cidr(cidr):
-		import socket, struct
-		return socket.inet_ntoa(struct.pack(">I", (0xffffffff << (32 - int(cidr))) & 0xffffffff))
 
 
 db = ActiveDirectory()
